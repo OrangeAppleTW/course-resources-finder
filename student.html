@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <base target="_top">
+    <title>課程連結查詢</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 讓載入中的動畫轉起來 */
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen p-4">
+    <div class="max-w-xl mx-auto bg-white rounded-xl shadow p-6">
+        <h1 class="text-2xl font-bold mb-4">學生端｜課程資源查詢</h1>
+        <p class="text-sm text-gray-600 mb-4">選擇課程、課堂和章節後，輸入老師提供的 6 位數密碼後即可查看連結。</p>
+        <form id="searchForm" class="space-y-4">
+            <div>
+                <label for="course" class="block text-sm font-medium text-gray-700 mb-1">課程</label>
+                <select id="course" name="course" required class="w-full px-3 py-2 border rounded-lg">
+                    <option value="Roblox AI 遊戲設計班：初階班">Roblox AI 遊戲設計班：初階班</option>
+                </select>
+            </div>
+
+            <div>
+                <label for="lesson" class="block text-sm font-medium text-gray-700 mb-1">課堂</label>
+                <select id="lesson" name="lesson" required class="w-full px-3 py-2 border rounded-lg">
+                </select>
+            </div>
+
+            <div>
+                <label for="chapter" class="block text-sm font-medium text-gray-700 mb-1">章節</label>
+                <select id="chapter" name="chapter" required class="w-full px-3 py-2 border rounded-lg">
+                </select>
+            </div>
+
+            <div id="passwordGroup" class="hidden">
+                <label for="password" class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
+                <div>
+                    <input inputmode="numeric" pattern="[0-9]{6}" maxlength="6" id="password" name="password"
+                        title="請輸入6位數字" class="w-full px-3 py-2 border rounded-lg" placeholder="請輸入6位數密碼"
+                        autocomplete="one-time-code">
+                </div>
+            </div>
+
+            <!-- 查詢按鈕已移除：輸入 6 位數密碼後自動查詢 -->
+        </form>
+        <div id="result" class="mt-6 text-base"></div>
+    </div>
+
+    <script>
+        // 🚨 請將這裡換成你自己的 API 網址！
+        const API_URL = 'https://script.google.com/macros/s/AKfycbyjvGN9y2fA23tIoIbk4U7dXBMGcdw_Vp2F67JonGtqABCE-_ULZyVscFCllB7QCIEG/exec';
+
+        // 取得元素參照
+        const courseSelect = document.getElementById('course');
+        const lessonSelect = document.getElementById('lesson');
+        const chapterSelect = document.getElementById('chapter');
+        const passwordInput = document.getElementById('password');
+        const passwordGroup = document.getElementById('passwordGroup');
+        // 已移除提示按鈕與相關元素
+
+        // 共用：設定 Select 為某種狀態
+        function setSelectOptions(select, items, placeholder = '請選擇', enable = true) {
+            select.innerHTML = '';
+            const ph = document.createElement('option');
+            ph.value = '';
+            ph.textContent = placeholder;
+            select.appendChild(ph);
+
+            if (Array.isArray(items)) {
+                for (const item of items) {
+                    const opt = document.createElement('option');
+                    opt.value = item;
+                    opt.textContent = item;
+                    select.appendChild(opt);
+                }
+            }
+            select.disabled = !enable;
+        }
+
+        function setLoading(select) {
+            setSelectOptions(select, [], '載入中...', false);
+        }
+
+        function resetDependent(select, text = '請先選擇上一步') {
+            setSelectOptions(select, [], text, false);
+        }
+
+        // 呼叫後端取得清單
+        async function fetchList(level, extraParams = {}) {
+            const params = new URLSearchParams({ action: 'list', level });
+            if (extraParams) {
+                for (const [k, v] of Object.entries(extraParams)) {
+                    if (v !== undefined && v !== null && v !== '') params.append(k, v);
+                }
+            }
+            const url = `${API_URL}?${params.toString()}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`伺服器錯誤，狀態碼: ${res.status}`);
+            const data = await res.json();
+            if (data.status !== 'success') throw new Error(data.message || '載入失敗');
+            return data.items || [];
+        }
+
+        // 在查詢期間暫時鎖定/解鎖三個下拉選單
+        let prevDisabledStates = null;
+        function lockSelects() {
+            prevDisabledStates = {
+                course: courseSelect.disabled,
+                lesson: lessonSelect.disabled,
+                chapter: chapterSelect.disabled,
+            };
+            courseSelect.disabled = true;
+            lessonSelect.disabled = true;
+            chapterSelect.disabled = true;
+        }
+        function unlockSelects() {
+            if (!prevDisabledStates) return;
+            courseSelect.disabled = prevDisabledStates.course;
+            lessonSelect.disabled = prevDisabledStates.lesson;
+            chapterSelect.disabled = prevDisabledStates.chapter;
+            prevDisabledStates = null;
+        }
+
+        // 在查詢期間鎖定/解鎖密碼輸入框
+        let prevPasswordDisabled = null;
+        function lockPassword() {
+            prevPasswordDisabled = passwordInput.disabled;
+            passwordInput.disabled = true;
+        }
+        function unlockPassword() {
+            if (prevPasswordDisabled === null) return;
+            passwordInput.disabled = prevPasswordDisabled;
+            prevPasswordDisabled = null;
+        }
+
+        // 級聯載入
+        async function loadCourses() {
+            try {
+                setLoading(courseSelect);
+                resetDependent(lessonSelect);
+                resetDependent(chapterSelect);
+                const items = await fetchList('course');
+                if (items.length === 0) {
+                    setSelectOptions(courseSelect, [], '無可用課程', false);
+                } else {
+                    setSelectOptions(courseSelect, items, '請選擇課程', true);
+                }
+            } catch (err) {
+                setSelectOptions(courseSelect, [], `載入失敗：${err.message}`, false);
+            }
+        }
+
+        async function loadLessons(course) {
+            try {
+                setLoading(lessonSelect);
+                resetDependent(chapterSelect);
+                const items = await fetchList('lesson', { '課程': course });
+                if (items.length === 0) {
+                    setSelectOptions(lessonSelect, [], '無可用課堂', false);
+                } else {
+                    setSelectOptions(lessonSelect, items, '請選擇課堂', true);
+                }
+            } catch (err) {
+                setSelectOptions(lessonSelect, [], `載入失敗：${err.message}`, false);
+            }
+        }
+
+        async function loadChapters(course, lesson) {
+            try {
+                setLoading(chapterSelect);
+                const items = await fetchList('chapter', { '課程': course, '課堂': lesson });
+                if (items.length === 0) {
+                    setSelectOptions(chapterSelect, [], '無可用章節', false);
+                } else {
+                    setSelectOptions(chapterSelect, items, '請選擇章節', true);
+                }
+            } catch (err) {
+                setSelectOptions(chapterSelect, [], `載入失敗：${err.message}`, false);
+            }
+        }
+
+        // 初始化與事件監聽
+        document.addEventListener('DOMContentLoaded', () => {
+            // 初始狀態
+            setLoading(courseSelect);
+            resetDependent(lessonSelect);
+            resetDependent(chapterSelect);
+            hidePassword();
+            loadCourses();
+
+            // 無提示按鈕，故無需事件處理
+
+            courseSelect.addEventListener('change', () => {
+                const c = courseSelect.value;
+                hidePassword(true);
+                clearResult();
+                if (!c) {
+                    resetDependent(lessonSelect);
+                    resetDependent(chapterSelect);
+                    return;
+                }
+                loadLessons(c);
+            });
+
+            lessonSelect.addEventListener('change', () => {
+                const c = courseSelect.value;
+                const l = lessonSelect.value;
+                hidePassword(true);
+                clearResult();
+                if (!c || !l) {
+                    resetDependent(chapterSelect);
+                    return;
+                }
+                loadChapters(c, l);
+            });
+
+            chapterSelect.addEventListener('change', () => {
+                const c = courseSelect.value;
+                const l = lessonSelect.value;
+                const ch = chapterSelect.value;
+                hidePassword(true);
+                if (!c || !l || !ch) {
+                    clearResult();
+                    return;
+                }
+                previewLinks(c, l, ch);
+            });
+
+            // 僅允許6位數字輸入，輸入滿 6 位自動查詢
+            passwordInput.addEventListener('input', () => {
+                const digits = (passwordInput.value || '').replace(/\D/g, '').slice(0, 6);
+                if (digits !== passwordInput.value) passwordInput.value = digits;
+                if (digits.length === 6) {
+                    searchUrl();
+                }
+            });
+        });
+
+
+        // 阻止表單預設提交（避免 Enter 造成頁面重整）
+        const searchForm = document.getElementById('searchForm');
+        searchForm.addEventListener('submit', function (event) { event.preventDefault(); });
+
+        // 處理使用者查詢 (使用 fetch API)
+        let isQuerying = false;
+        async function searchUrl() {
+            if (API_URL === '貼上你部署後的網頁應用程式網址') {
+                showError({ message: '錯誤：尚未設定 API_URL 變數。' });
+                return;
+            }
+
+            const resultDiv = document.getElementById('result');
+            if (isQuerying) return; // 避免重複送出
+            isQuerying = true;
+            lockSelects();
+            lockPassword();
+            try { passwordInput.blur(); } catch (e) { }
+            resultDiv.innerHTML = '正在查詢中...';
+            resultDiv.className = 'mt-6 text-base font-medium text-gray-500'; // 重置樣式
+
+            // 取得表單資料
+            const course = document.getElementById('course').value;
+            const lesson = document.getElementById('lesson').value;
+            const chapter = document.getElementById('chapter').value;
+
+            const params = new URLSearchParams({
+                '課程': course,
+                '課堂': lesson,
+                '章節': chapter,
+                '密碼': (document.getElementById('password').value || '').trim()
+            });
+
+            // 建立完整的 API 請求網址
+            const requestUrl = `${API_URL}?${params.toString()}`;
+
+            try {
+                const response = await fetch(requestUrl);
+                if (!response.ok) {
+                    // 如果伺服器回應非 2xx 狀態碼，也視為錯誤
+                    throw new Error(`伺服器錯誤，狀態碼: ${response.status}`);
+                }
+                const data = await response.json(); // 解析 JSON 回應
+                showResult(data);
+            } catch (error) {
+                showError(error);
+            } finally {
+                isQuerying = false;
+                unlockSelects();
+                unlockPassword();
+            }
+        }
+
+        // 顯示查詢結果
+        function showResult(data) {
+            const resultDiv = document.getElementById('result');
+
+            // 根據 API 回傳的 status 決定顯示內容
+            if (data.status === 'success') {
+                const links = (Array.isArray(data.links) && data.links.length > 0)
+                    ? data.links
+                    : (data.link ? [data.link] : []);
+                const list = links
+                    .map((lnk, i) => `<li class="mb-1"><a class="text-blue-600 hover:underline break-all" href="${lnk}" target="_blank">連結 ${i + 1}</a></li>`)
+                    .join('');
+                resultDiv.innerHTML = `
+                        <div class="p-4 border rounded-lg">
+                            <div class="text-sm text-gray-500">連結</div>
+                            <ul class="list-disc pl-5 mt-1">${list}</ul>
+                        </div>`;
+                resultDiv.className = 'mt-6 text-base text-gray-800';
+                hidePassword(true);
+            } else if (data.status === 'forbidden') {
+                showPassword(true);
+                const msg = data.message || '密碼錯誤或缺少密碼。';
+                resultDiv.innerHTML = `🔒 ${msg}`;
+                resultDiv.className = 'mt-6 text-base font-medium text-amber-600';
+            } else {
+                // 處理 'not_found' 或 'error' 狀態
+                const errorMessage = data.message || '發生未知的錯誤。';
+                resultDiv.innerHTML = `❌ 查詢失敗：${errorMessage}`;
+                resultDiv.className = 'mt-6 text-base font-medium text-red-600';
+            }
+        }
+
+        // 處理錯誤
+        function showError(error) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `❌ 發生錯誤：${error.message}`;
+            resultDiv.className = 'mt-6 text-base font-medium text-red-600';
+            console.error('Fetch Error:', error);
+        }
+
+        // 小工具：清空結果
+        function clearResult() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '';
+            resultDiv.className = 'mt-6 text-base font-medium';
+        }
+
+        // 密碼區顯示/隱藏
+        function showPassword(focus = false) {
+            passwordGroup.classList.remove('hidden');
+            passwordInput.required = true;
+            if (focus) passwordInput.focus();
+        }
+        function hidePassword(reset = false) {
+            passwordGroup.classList.add('hidden');
+            passwordInput.required = false;
+            if (reset) passwordInput.value = '';
+        }
+
+        // 在選擇章節後，預檢是否需要密碼，若不需要直接顯示連結
+        async function previewLinks(course, lesson, chapter) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '檢查中...';
+            resultDiv.className = 'mt-6 text-base font-medium text-gray-500';
+
+            try {
+                const params = new URLSearchParams({
+                    '課程': course,
+                    '課堂': lesson,
+                    '章節': chapter
+                });
+                // 後端不再管理密碼，預檢僅確認是否存在連結
+                const url = `${API_URL}?${params.toString()}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`伺服器錯誤，狀態碼: ${response.status}`);
+                const data = await response.json();
+                // 後端將做最終驗證，這裡提示輸入密碼（輸入 6 位後自動查詢）
+                showPassword(true);
+                resultDiv.innerHTML = `🔒 請輸入密碼（輸入 6 位後將自動查詢）。`;
+                resultDiv.className = 'mt-6 text-base font-medium text-amber-600';
+            } catch (err) {
+                showError(err);
+            }
+        }
+
+        // 學生端不再需要本地 PIN 計算，僅輸入與傳遞給後端
+    </script>
+</body>
+
+</html>
