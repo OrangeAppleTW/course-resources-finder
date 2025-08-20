@@ -33,9 +33,15 @@ function doGet(e) {
       const eq = (a, b) => String(a) === String(b);
 
       if (level === 'course') {
-        // 取出課程
+        // 取出課程（僅保留最終有可用連結的課程）
+        // 條件：該課程至少存在一筆資料，其「課堂」「章節」「連結」皆非空
         const items = [...new Set(
-          data.map(r => String(r[idxCourse])).filter(Boolean)
+          data
+            .filter(r => String(r[idxLink] || '').trim() !== ''
+              && String(r[idxLesson] || '').trim() !== ''
+              && String(r[idxChapter] || '').trim() !== '')
+            .map(r => String(r[idxCourse]))
+            .filter(Boolean)
         )].sort();
         return createJsonResponse({ status: 'success', items });
       }
@@ -44,10 +50,13 @@ function doGet(e) {
         if (!course) {
           return createJsonResponse({ status: 'error', message: "缺少參數：課程" });
         }
-        // 取出指定課程的課堂
+        // 取出指定課程的課堂（僅保留最終有可用連結的課堂）
+        // 條件：在該課程下，至少存在一筆資料其「章節」「連結」皆非空
         const items = [...new Set(
           data
-            .filter(r => eq(r[idxCourse], course))
+            .filter(r => eq(r[idxCourse], course)
+              && String(r[idxLink] || '').trim() !== ''
+              && String(r[idxChapter] || '').trim() !== '')
             .map(r => String(r[idxLesson]))
             .filter(Boolean)
         )].sort((a, b) => Number(a) - Number(b));
