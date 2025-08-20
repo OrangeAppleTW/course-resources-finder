@@ -3,9 +3,10 @@
 
 <head>
     <meta charset="utf-8" />
-    <title>教師端｜課程資源密碼</title>
+    <title>橘蘋課程資源查詢工具</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/x-icon" href="favicon.png">
 </head>
 
 <body class="bg-gray-100 min-h-screen p-4">
@@ -18,7 +19,7 @@
         <span>正在驗證邀請碼…</span>
     </div>
     <div id="app" class="max-w-xl mx-auto bg-white rounded-xl shadow p-6 hidden">
-        <h1 class="text-2xl font-bold mb-4">教師端｜課程資源密碼</h1>
+        <h1 class="text-2xl font-bold mb-4">橘蘋課程資源查詢工具</h1>
         <p class="text-sm text-gray-600 mb-4">選擇後，系統會顯示對應的 6 位數密碼與連結，請轉告學生該密碼。</p>
 
         <form class="space-y-4" id="form">
@@ -49,8 +50,7 @@
         }
 
         // 先驗證教師端 uuid，成功才顯示畫面
-        async function verifyTeacherUUID() {
-            const uuid = getQueryParam('uuid');
+        async function verifyTeacherUUID(uuid = getQueryParam('uuid')) {
             if (!uuid) return false;
             try {
                 const params = new URLSearchParams({ action: 'teacher_auth', uuid });
@@ -168,10 +168,22 @@
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
-            const ok = await verifyTeacherUUID();
+            let ok = await verifyTeacherUUID();
             if (!ok) {
-                if (authLoading) authLoading.classList.add('hidden');
-                alert('無法開啟教師介面：邀請碼缺失或錯誤，請從正確連結重新進入。');
+                if (authLoading) authLoading.querySelector('span').textContent = '請輸入邀請碼以繼續';
+                const input = prompt('請輸入邀請碼：');
+                if (input && input.trim()) {
+                    if (authLoading) authLoading.querySelector('span').textContent = '正在驗證邀請碼…';
+                    ok = await verifyTeacherUUID(input.trim());
+                    if (ok) {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('uuid', input.trim());
+                        history.replaceState(null, '', url.toString());
+                    }
+                }
+            }
+            if (!ok) {
+                if (authLoading) authLoading.querySelector('span').textContent = '無法開啟教師介面：邀請碼缺失或錯誤。';
                 return;
             }
             // 解鎖主畫面
