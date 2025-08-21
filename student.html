@@ -72,7 +72,7 @@
 
     <script>
         // 🚨 請將這裡換成你自己的 API 網址！
-        const API_URL = 'https://script.google.com/macros/s/AKfycbwmDDHrIezTfevpMdreO8nmX_r3D0Pv3r8KTsckn3tC0b5ZWnetTbiPvpJ7CcauWqG9/exec';
+        const API_URL = 'https://script.google.com/macros/s/AKfycby8hkRr4ZpdUlp0fdZ5AsWj71DemnkE0QAzuglpDaolOR1Yl-sqvVyZeGQEvFFhiS_8/exec';
 
         // 取得元素參照
         const courseSelect = document.getElementById('course');
@@ -151,6 +151,11 @@
             prevPasswordDisabled = passwordInput.disabled;
             passwordInput.disabled = true;
         }
+
+        // 僅當三個下拉都已選定有效值時才可輸入密碼
+        function hasAllSelections() {
+            return Boolean(courseSelect.value && lessonSelect.value && chapterSelect.value);
+        }
         function unlockPassword() {
             if (prevPasswordDisabled === null) return;
             passwordInput.disabled = prevPasswordDisabled;
@@ -210,7 +215,58 @@
             resetDependent(lessonSelect);
             resetDependent(chapterSelect);
             hidePassword();
-            loadCourses();
+            // 解析 URL 預設參數（支援英文/中文鍵）：?course=...&lesson=...&chapter=...
+            const urlParams = new URLSearchParams(window.location.search);
+            const presetCourse = urlParams.get('course') || urlParams.get('課程');
+            const presetLesson = urlParams.get('lesson') || urlParams.get('課堂');
+            const presetChapter = urlParams.get('chapter') || urlParams.get('章節');
+            const presetPin = urlParams.get('password') || urlParams.get('pin') || urlParams.get('密碼');
+
+            // 根據參數決定是否跳過清單請求
+            (async () => {
+                if (!presetCourse) {
+                    // 無任何預設，走原本流程
+                    await loadCourses();
+                    return;
+                }
+
+                // 有 course，直接顯示並跳過課程清單請求，且鎖定課程選單
+                setSelectOptions(courseSelect, [presetCourse], '請選擇課程', false);
+                courseSelect.value = presetCourse;
+
+                if (!presetLesson && !presetChapter) {
+                    // 僅 course：直接請「課堂」清單
+                    await loadLessons(presetCourse);
+                    return;
+                }
+
+                // 有 course + lesson，先固定兩者，不請課堂清單，直接請章節清單，且鎖定課堂選單
+                setSelectOptions(lessonSelect, [presetLesson], '請選擇課堂', false);
+                lessonSelect.value = presetLesson || '';
+
+                if (!presetChapter) {
+                    await loadChapters(presetCourse, presetLesson);
+                    return;
+                }
+
+                // 有 course + lesson + chapter：不請任何清單，直接準備查連結，且鎖定章節選單
+                setSelectOptions(chapterSelect, [presetChapter], '請選擇章節', false);
+                chapterSelect.value = presetChapter;
+
+                // 若網址已有 6 碼密碼，直接查詢連結；否則顯示密碼欄位等待輸入
+                // 若網址已有 6 碼密碼，直接查詢連結；否則在三者齊全時顯示密碼欄位
+                if (hasAllSelections() && presetPin && /^\d{6}$/.test(presetPin)) {
+                    passwordInput.value = presetPin;
+                    searchUrl();
+                } else if (hasAllSelections()) {
+                    showPassword(true);
+                    const resultDiv = document.getElementById('result');
+                    resultDiv.innerHTML = '輸入密碼後會自動送出查詢';
+                    resultDiv.className = 'mt-6 text-base font-medium text-amber-600';
+                } else {
+                    hidePassword(true);
+                }
+            })();
 
             // 無提示按鈕，故無需事件處理
 
@@ -391,9 +447,14 @@
                 if (!response.ok) throw new Error(`伺服器錯誤，狀態碼: ${response.status}`);
                 const data = await response.json();
                 // 後端將做最終驗證，這裡提示輸入密碼（輸入 6 位後自動查詢）
-                showPassword(true);
-                resultDiv.innerHTML = `輸入密碼後會自動送出查詢`;
-                resultDiv.className = 'mt-6 text-base font-medium text-amber-600';
+                // 僅在三個選擇皆存在時顯示密碼
+                if (hasAllSelections()) {
+                    showPassword(true);
+                    resultDiv.innerHTML = `輸入密碼後會自動送出查詢`;
+                    resultDiv.className = 'mt-6 text-base font-medium text-amber-600';
+                } else {
+                    hidePassword(true);
+                }
             } catch (err) {
                 showError(err);
             }

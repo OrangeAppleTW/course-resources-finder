@@ -42,7 +42,7 @@
 
     <script>
         // 固定後端位址
-        const API_URL = 'https://script.google.com/macros/s/AKfycbwmDDHrIezTfevpMdreO8nmX_r3D0Pv3r8KTsckn3tC0b5ZWnetTbiPvpJ7CcauWqG9/exec';
+        const API_URL = 'https://script.google.com/macros/s/AKfycby8hkRr4ZpdUlp0fdZ5AsWj71DemnkE0QAzuglpDaolOR1Yl-sqvVyZeGQEvFFhiS_8/exec';
         // 讀取網址參數
         function getQueryParam(name) {
             const url = new URL(window.location.href);
@@ -69,6 +69,11 @@
         const chapterSel = document.getElementById('chapter');
         const info = document.getElementById('info');
         const authLoading = document.getElementById('authLoading');
+
+        // 僅當三者皆有值時才允許送出查詢
+        function hasAllSelections() {
+            return Boolean(courseSel.value && lessonSel.value && chapterSel.value);
+        }
 
         function setSelectOptions(select, items, placeholder = '請選擇', enable = true) {
             select.innerHTML = '';
@@ -137,6 +142,11 @@
         }
 
         async function preview(course, lesson, chapter) {
+            // 缺任一值則不送查詢
+            if (!course || !lesson || !chapter) {
+                info.textContent = '';
+                return;
+            }
             info.textContent = '檢查中...'; info.className = 'mt-6 text-base text-gray-600';
             try {
                 const pin = await fetchPin(course, lesson, chapter);
@@ -189,7 +199,41 @@
             // 解鎖主畫面
             if (authLoading) authLoading.classList.add('hidden');
             document.getElementById('app').classList.remove('hidden');
-            loadCourses();
+            // 解析 URL 預設參數（支援英文/中文鍵）
+            const urlParams = new URLSearchParams(window.location.search);
+            const presetCourse = urlParams.get('course') || urlParams.get('課程');
+            const presetLesson = urlParams.get('lesson') || urlParams.get('課堂');
+            const presetChapter = urlParams.get('chapter') || urlParams.get('章節');
+            // 根據參數決定是否跳過清單請求
+            (async () => {
+                if (!presetCourse) {
+                    await loadCourses();
+                    return;
+                }
+                // 有 course：直接填入並跳過課程清單，且鎖定課程選單
+                setSelectOptions(courseSel, [presetCourse], '請選擇課程', false);
+                courseSel.value = presetCourse;
+
+                if (!presetLesson && !presetChapter) {
+                    // 僅 course：直接請課堂清單
+                    await loadLessons(presetCourse);
+                    return;
+                }
+
+                // 有 course+lesson：固定兩者，跳過課堂清單，直接請章節清單，且鎖定課堂選單
+                setSelectOptions(lessonSel, [presetLesson], '請選擇課堂', false);
+                lessonSel.value = presetLesson || '';
+
+                if (!presetChapter) {
+                    await loadChapters(presetCourse, presetLesson);
+                    return;
+                }
+
+                // 三者齊全：直接預覽（含 PIN 與連結），且鎖定章節選單
+                setSelectOptions(chapterSel, [presetChapter], '請選擇章節', false);
+                chapterSel.value = presetChapter;
+                preview(presetCourse, presetLesson, presetChapter);
+            })();
             courseSel.addEventListener('change', () => {
                 const c = courseSel.value; info.textContent = '';
                 if (!c) { resetDependent(lessonSel); resetDependent(chapterSel); return; }

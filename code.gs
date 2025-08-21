@@ -7,16 +7,17 @@ function doGet(e) {
   // 1. 從 URL 取得查詢參數
   const params = e.parameter;
   const action = params.action; // 新增：用於取得清單資料
-  const course = params.課程;
-  const lesson = params.課堂;
-  const chapter = params.章節;
+  // 同時支援中文與英文鍵名（例如 student.html?course=...&lesson=...&chapter=...）
+  const course = params.課程 || params.course;
+  const lesson = params.課堂 || params.lesson;
+  const chapter = params.章節 || params.chapter;
   const providedPin = String(params['密碼'] || params['pin'] || '').trim();
   const uuid = String(params['uuid'] || '').trim();
 
   // A) 若為清單查詢，提早回傳
   if (action === 'list') {
     try {
-      const level = params.level; // course | lesson | chapter
+  const level = params.level; // course | lesson | chapter
       const data = getSheetData_();
 
       // 去掉表頭
